@@ -2,15 +2,12 @@ import os
 import datetime
 from typing import List, Dict, Tuple
 import numpy as np
+from collections import Counter
 import json
-from pgmpy.models import BayesianNetwork
-from pgmpy.inference import VariableElimination
-from pgmpy.factors.discrete import TabularCPD
 from langchain_openai import OpenAI
 from langchain_core.runnables import RunnablePassthrough
 from langchain.prompts import PromptTemplate
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-import yake
+import math
 
 from dotenv import load_dotenv
 # Load environment variables from .env file
@@ -31,318 +28,319 @@ class PsychologicalProfiler:
         """
         Initialize the PsychologicalProfiler with necessary components and parameters.
         """
+        # Initialize OpenAI LLM
         self.llm = OpenAI(temperature=0.7)
-        self.prompt = PromptTemplate(
-            input_variables=["text"],
+
+        # Initialize prompts for the three-step process
+        self.function_identification_prompt = PromptTemplate(
+            input_variables=["conversation"],
             template="""
-            You are an expert in Jungian psychology. Analyze the following text for psychological insights related to Jungian cognitive functions:
+            Analyze the following conversation and assess the presence and strength of each cognitive function (Ti, Te, Fi, Fe, Ni, Ne, Si, Se). Provide a brief analysis for all functions, even if they're not strongly present.
 
-            Text: {text}
+            Conversation: {conversation}
 
-            Provide your analysis in the following JSON format and **do not include any extra text**:
-            {{
-                "cognitive_functions": ["list", "of", "detected", "functions"],
-                "confidence_areas": ["list", "of", "confidence", "areas"],
-                "anxiety_areas": ["list", "of", "anxiety", "areas"],
-                "problem_solving": "approach",
-                "thinking_style": "style",
-                "time_orientation": "orientation"
-            }}
-            
-            Ensure all cognitive functions (Ti, Te, Fi, Fe, Ni, Ne, Si, Se) are considered.
+            For each function, provide:
+            1. The function name (Ti, Te, Fi, Fe, Ni, Ne, Si, Se)
+            2. A rating from 0-10 (0 being not present at all, 10 being very strongly present)
+            3. A brief explanation of how it's being used or why it's not evident (1-2 sentences max)
 
-            Example Output:
-            {{
-                "cognitive_functions": ["Ti", "Ne"],
-                "confidence_areas": ["logical analysis", "idea generation"],
-                "anxiety_areas": ["social interactions"],
-                "problem_solving": "Analytical",
-                "thinking_style": "Abstract",
-                "time_orientation": "Future-focused"
-            }}
+            Example format:
+            Ti: 7 - Clear logical analysis present in the argument about X.
+            Te: 3 - Some organization of external information, but not a primary focus.
+            ...
+
+            Provide an analysis for all 8 functions in this format.
             """
         )
-        self.llm_chain = self.prompt | self.llm
-        self.pairing_probabilities = np.ones(len(PAIRINGS)) / len(PAIRINGS)
+
+        self.pairing_analysis_prompt = PromptTemplate(
+            input_variables=["function_analysis", "conversation"],
+            template="""
+            Based on the following function analysis and the original conversation, determine the most likely Hero-Inferior pairing. Consider all possible pairings and their associated strengths and challenges:
+
+            Ti Hero - Fe Inferior:
+            Strengths: Logical analysis, problem-solving, objective decision-making
+            Challenges: Emotional expression, social harmony, empathy in relationships
+
+            Fe Hero - Ti Inferior:
+            Strengths: Social awareness, empathy, creating harmony in groups
+            Challenges: Logical analysis, maintaining objectivity, individual decision-making
+
+            Te Hero - Fi Inferior:
+            Strengths: Efficient organization, strategic planning, objective goal-setting
+            Challenges: Personal value alignment, emotional self-awareness, moral decision-making
+
+            Fi Hero - Te Inferior:
+            Strengths: Strong personal values, authenticity, moral integrity
+            Challenges: External organization, efficiency in systems, objective goal-setting
+
+            Ne Hero - Si Inferior:
+            Strengths: Idea generation, seeing possibilities, abstract connections
+            Challenges: Detailed memory recall, maintaining routines, practical application of past experiences
+
+            Si Hero - Ne Inferior:
+            Strengths: Detailed memory, establishing routines, practical application of past experiences
+            Challenges: Generating new ideas, seeing abstract possibilities, adapting to change
+
+            Ni Hero - Se Inferior:
+            Strengths: Long-term vision, pattern recognition, strategic foresight
+            Challenges: Present moment awareness, sensory engagement, adapting to immediate environment
+
+            Se Hero - Ni Inferior:
+            Strengths: Present moment awareness, sensory engagement, quick adaptation to environment
+            Challenges: Long-term vision, recognizing abstract patterns, strategic planning
+
+            Original Conversation:
+            {conversation}
+
+            Function Analysis:
+            {function_analysis}
+
+            Provide:
+            1. The most likely Hero-Inferior pairing
+            2. A brief explanation for why this pairing is most likely, referencing the strengths and challenges, and citing specific examples from the conversation (2-3 sentences max)
+
+            Present your analysis in a clear, concise format.
+            """
+        )
+
+        self.structured_output_prompt = PromptTemplate(
+            input_variables=["pairing_analysis"],
+            template="""
+            Based on the following pairing analysis, create a structured output summarizing the key findings.
+
+            Pairing Analysis: {pairing_analysis}
+
+            Generate a response in the following format:
+            FUNCTION_RATINGS_START
+            Ti: [rating] - [evidence]
+            Te: [rating] - [evidence]
+            Fi: [rating] - [evidence]
+            Fe: [rating] - [evidence]
+            Ni: [rating] - [evidence]
+            Ne: [rating] - [evidence]
+            Si: [rating] - [evidence]
+            Se: [rating] - [evidence]
+            FUNCTION_RATINGS_END
+            PRIMARY_PAIRING: [Hero function] Hero - [Inferior function] Inferior
+            PAIRING_EXPLANATION: [Brief explanation]
+            SECONDARY_PAIRING: [Hero function] Hero - [Inferior function] Inferior
+            SECONDARY_EXPLANATION: [Brief explanation]
+
+            Ensure all sections are filled out. Use 'None' if no secondary pairing is identified.
+            """
+        )
+
+        # Initialize other components
+        self.pairing_counts = Counter()
+        self.total_assessments = 0
         self.conversation_data = []
-        self.current_profile = None
-        self.current_certainty = 0
-        self.bayesian_network = self.initialize_bayesian_network()
-        self.time_constant = 3600  # 1 hour in seconds
 
-    def initialize_bayesian_network(self):
-        """
-        Initialize the Bayesian network with appropriate nodes, edges, and CPDs.
-        """
-        model = BayesianNetwork()
+    
+    def identify_functions_with_reasoning(self, conversation: str) -> str:
+        prompt = PromptTemplate(
+            input_variables=["conversation"],
+            template="""
+            Analyze the following conversation and assess the presence and strength of each cognitive function (Ti, Te, Fi, Fe, Ni, Ne, Si, Se). Provide detailed reasoning and evidence for each function.
 
-        # Add nodes
-        model.add_node('Pairing')
-        for func in COGNITIVE_FUNCTIONS:
-            model.add_node(func)
-            model.add_edge('Pairing', func)
+            Conversation: {conversation}
 
-        # Define CPDs
-        cpd_list = []
+            For each function, consider:
+            1. How strongly is it exhibited?
+            2. What specific examples in the conversation demonstrate this function?
+            3. How does this function interact with other apparent functions?
 
-        # CPD for 'Pairing' (Uniform prior)
-        cpd_pairing = TabularCPD(
-            variable='Pairing',
-            variable_card=8,
-            values=[[1/8] for _ in range(8)]  # Correct shape (8, 1)
+            Provide your analysis in a clear, detailed format without using any JSON structure.
+            """
         )
-        cpd_list.append(cpd_pairing)
-
-        # Mapping from pairing index to functions
-        pairing_to_functions = {
-            0: {'Ti': 'Hero', 'Fe': 'Inferior'},
-            1: {'Fe': 'Hero', 'Ti': 'Inferior'},
-            2: {'Te': 'Hero', 'Fi': 'Inferior'},
-            3: {'Fi': 'Hero', 'Te': 'Inferior'},
-            4: {'Ne': 'Hero', 'Si': 'Inferior'},
-            5: {'Si': 'Hero', 'Ne': 'Inferior'},
-            6: {'Ni': 'Hero', 'Se': 'Inferior'},
-            7: {'Se': 'Hero', 'Ni': 'Inferior'},
-        }
-
-        # Function to create CPD for a cognitive function
-        def create_cpd_for_function(func_name):
-            values = [[], []]  # P(func=0 | Pairing), P(func=1 | Pairing)
-            for pairing_index in range(8):
-                pairing_funcs = pairing_to_functions[pairing_index]
-                if func_name in pairing_funcs:
-                    role = pairing_funcs[func_name]
-                    if role == 'Hero':
-                        p_present = 0.9
-                    elif role == 'Inferior':
-                        p_present = 0.3
-                else:
-                    p_present = 0.5  # Neutral probability
-                p_absent = 1 - p_present
-                values[0].append(p_absent)  # P(func=0 | Pairing)
-                values[1].append(p_present)  # P(func=1 | Pairing)
-            cpd = TabularCPD(
-                variable=func_name,
-                variable_card=2,
-                evidence=['Pairing'],
-                evidence_card=[8],
-                values=values
-            )
-            return cpd
-
-        # Create and add CPDs for each cognitive function
-        for func in COGNITIVE_FUNCTIONS:
-            cpd_func = create_cpd_for_function(func)
-            cpd_list.append(cpd_func)
-
-        model.add_cpds(*cpd_list)
-        model.check_model()  # Validate the model
-        return model
+        return self.llm(prompt.format(conversation=conversation))
     
-    def update_profile(self, new_message: str, context: str = "general") -> Tuple[str, float]:
-        """
-        Updates the user's psychological profile based on a new message.
-
-        Parameters:
-        - new_message (str): The latest message from the user.
-        - context (str): The context of the message (e.g., "work", "personal").
-
-        Returns:
-        - Tuple[str, float]: The updated profile and the current certainty level.
-        """
-        # Step 1: LLM Analysis
-        llm_output = self.llm_chain.invoke({"text": new_message})
-        
-        # Step 2: Post-LLM Processing
-        processed_data = self.process_llm_output(llm_output, new_message)
-        
-        # Step 3: Hero-Inferior Pairing Analysis
-        self.update_pairing_probabilities(processed_data)
-        
-        # Step 4: Certainty Calculation
-        self.current_certainty = self.calculate_certainty()
-        
-        # Step 5: Temporal Analysis
-        self.temporal_analysis()
-        
-        # Step 6: Profile Generation
-        self.current_profile = self.generate_profile()
-        
-        # Store conversation data
-        self.conversation_data.append({
-            'timestamp': datetime.datetime.now(),
-            'message': new_message,
-            'context': context,
-            'processed_data': processed_data,
-            'probabilities': self.pairing_probabilities.copy(),
-            'certainty': self.current_certainty
-        })
-        
-        return self.current_profile, self.current_certainty
+    def analyze_pairings_with_reasoning(self, function_analysis: str, conversation: str) -> str:
+        return self.llm(self.pairing_analysis_prompt.format(
+            function_analysis=function_analysis,
+            conversation=conversation
+        ))
     
-    def process_llm_output(self, llm_output: str, original_text: str) -> Dict:
-        """
-        Process the LLM output and extract relevant information.
-
-        Parameters:
-        - llm_output (str): The raw output from the LLM.
-        - original_text (str): The original input text.
-
-        Returns:
-        - Dict: Processed data including cognitive functions, sentiment, and topics.
-        """
-        # Remove any text before the first '{' to handle LLM extra text
-        json_start = llm_output.find('{')
-        if json_start != -1:
-            llm_output = llm_output[json_start:]
+    def generate_structured_output(self, pairing_analysis: str) -> Dict:
+        prompt = self.structured_output_prompt.format(pairing_analysis=pairing_analysis)
+        
         try:
-            llm_data = json.loads(llm_output)
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON: {e}")
-            # Retry with a simplified prompt
-            llm_data = self.retry_llm_with_simplified_prompt(original_text)
-        
-        processed_data = {
-            'cognitive_functions': llm_data.get("cognitive_functions", []),
-            'confidence_areas': llm_data.get("confidence_areas", []),
-            'anxiety_areas': llm_data.get("anxiety_areas", []),
-            'problem_solving': llm_data.get("problem_solving", "Unknown"),
-            'thinking_style': llm_data.get("thinking_style", "Unknown"),
-            'time_orientation': llm_data.get("time_orientation", "Unknown"),
-            'sentiment': self.analyze_sentiment(original_text),
-            'topics': self.extract_topics(original_text)
-        }
-        return processed_data
-
-    def retry_llm_with_simplified_prompt(self, original_text: str) -> Dict:
-        """
-        Retry LLM analysis with a simplified prompt if the initial attempt fails.
-
-        Parameters:
-        - original_text (str): The original input text.
-
-        Returns:
-        - Dict: Simplified processed data.
-        """
-        simplified_prompt = PromptTemplate(
-            input_variables=["text"],
-            template="Analyze this text and list any cognitive functions mentioned: {text}"
-        )
-        simplified_chain = simplified_prompt | self.llm
-        simplified_output = simplified_chain.invoke({"text": original_text})
-        
-        # Extract cognitive functions from the simplified output
-        cognitive_functions = [func for func in COGNITIVE_FUNCTIONS if func in simplified_output]
-        
-        return {
-            "cognitive_functions": cognitive_functions,
-            "confidence_areas": [],
-            "anxiety_areas": [],
-            "problem_solving": "Unknown",
-            "thinking_style": "Unknown",
-            "time_orientation": "Unknown"
-        }
-    
-    def update_pairing_probabilities(self, processed_data):
-        """
-        Update the probabilities of each Hero-Inferior pairing based on the processed data.
-
-        Parameters:
-        - processed_data (Dict): The processed data from LLM output.
-        """
-        evidence_funcs = processed_data['cognitive_functions']
-        evidence = {}
-        for func in evidence_funcs:
-            evidence[func] = 1  # Cognitive function present
-
-        # Do not set evidence for functions not mentioned
-        # This way, unobserved functions remain as random variables
-
-        infer = VariableElimination(self.bayesian_network)
-        try:
-            prob_query = infer.query(variables=['Pairing'], evidence=evidence)
-            self.pairing_probabilities = prob_query.values
+            output = self.llm.invoke(prompt)
+            return self.parse_structured_output(output)
         except Exception as e:
-            print(f"Error during inference: {e}")
-            self.pairing_probabilities = np.ones(len(PAIRINGS)) / len(PAIRINGS)
+            print(f"Error in generate_structured_output: {e}")
+            print("Raw output:", output)
+            return self._get_default_json_structure()
 
+    def parse_structured_output(self, output: str) -> Dict:
+        lines = output.split('\n')
+        result = {
+            "function_ratings": [],
+            "primary_pairing": "",
+            "pairing_explanation": "",
+            "secondary_pairing": None,
+            "secondary_explanation": None
+        }
+        
+        in_ratings = False
+        for line in lines:
+            line = line.strip()
+            if line == "FUNCTION_RATINGS_START":
+                in_ratings = True
+                continue
+            elif line == "FUNCTION_RATINGS_END":
+                in_ratings = False
+                continue
+            
+            if in_ratings:
+                parts = line.split(':', 1)
+                if len(parts) == 2:
+                    func, rest = parts
+                    rest_parts = rest.split('-', 1)
+                    if len(rest_parts) == 2:
+                        rating, evidence = rest_parts
+                    else:
+                        rating, evidence = rest_parts[0], ""
+                    
+                    try:
+                        rating_value = int(rating.strip())
+                    except ValueError:
+                        rating_value = 0  # Default to 0 if rating is not a valid integer
+                    
+                    result["function_ratings"].append({
+                        "function": func.strip(),
+                        "rating": rating_value,
+                        "evidence": evidence.strip()
+                    })
+            elif line.startswith("PRIMARY_PAIRING:"):
+                result["primary_pairing"] = line.split(':', 1)[1].strip()
+            elif line.startswith("PAIRING_EXPLANATION:"):
+                result["pairing_explanation"] = line.split(':', 1)[1].strip()
+            elif line.startswith("SECONDARY_PAIRING:"):
+                result["secondary_pairing"] = line.split(':', 1)[1].strip()
+            elif line.startswith("SECONDARY_EXPLANATION:"):
+                result["secondary_explanation"] = line.split(':', 1)[1].strip()
+        
+        # Ensure all 8 functions are present
+        existing_functions = {r['function'] for r in result['function_ratings']}
+        for func in COGNITIVE_FUNCTIONS:
+            if func not in existing_functions:
+                result['function_ratings'].append({
+                    "function": func,
+                    "rating": 0,
+                    "evidence": "No evidence provided"
+                })
+        
+        return result
+        
+    def _validate_json_structure(self, parsed_json: Dict):
+        """Validate the structure of the parsed JSON."""
+        assert 'function_ratings' in parsed_json, "Missing 'function_ratings'"
+        assert len(parsed_json['function_ratings']) == 8, "Incorrect number of function ratings"
+        
+        for rating in parsed_json['function_ratings']:
+            assert all(key in rating for key in ['function', 'rating', 'evidence']), "Missing keys in function rating"
+            assert isinstance(rating['rating'], int) and 0 <= rating['rating'] <= 10, f"Invalid rating for {rating['function']}"
+        
+        assert 'primary_pairing' in parsed_json, "Missing 'primary_pairing'"
+        assert 'pairing_explanation' in parsed_json, "Missing 'pairing_explanation'"
+        assert 'secondary_pairing' in parsed_json, "Missing 'secondary_pairing'"
+        assert 'secondary_explanation' in parsed_json, "Missing 'secondary_explanation'"
+
+    def _get_default_json_structure(self) -> Dict:
+        """Return a default JSON structure."""
+        return {
+            "function_ratings": [
+                {"function": func, "rating": 0, "evidence": "No data available"}
+                for func in ['Ti', 'Te', 'Fi', 'Fe', 'Ni', 'Ne', 'Si', 'Se']
+            ],
+            "primary_pairing": "Unknown Hero - Unknown Inferior",
+            "pairing_explanation": "No data available",
+            "secondary_pairing": None,
+            "secondary_explanation": None
+        }
+
+
+    def update_profile(self, new_message: str, context: str = "general") -> Tuple[str, float]:
+        try:
+            # Step 1: Function Identification with Reasoning
+            function_analysis = self.identify_functions_with_reasoning(new_message)
+            
+            # Step 2: Pairing Analysis with Reasoning
+            pairing_analysis = self.analyze_pairings_with_reasoning(function_analysis, new_message)
+            
+            # Step 3: Generate Structured Output
+            structured_output = self.generate_structured_output(pairing_analysis)
+            
+            # Extract the most likely pairing
+            most_likely_pairing = structured_output.get('primary_pairing', 'Unknown - Unknown')
+            
+            # Update counts
+            self.pairing_counts[most_likely_pairing] += 1
+            self.total_assessments += 1
+            
+            # Store conversation data
+            self.conversation_data.append({
+                'timestamp': datetime.datetime.now(),
+                'message': new_message,
+                'context': context,
+                'most_likely_pairing': most_likely_pairing,
+                'analysis': structured_output
+            })
+            
+            # Generate profile and calculate certainty
+            profile = self.generate_profile()
+            certainty = self.calculate_certainty()
+            
+            return profile, certainty
+        except Exception as e:
+            print(f"Error in update_profile: {e}")
+            print("Function analysis:", function_analysis)
+            print("Pairing analysis:", pairing_analysis)
+            print("Structured output:", structured_output)
+            raise
+        
+    
     
     # Multiplicative certainty calculation
     def calculate_certainty(self) -> float:
-        max_prob = np.max(self.pairing_probabilities)
-        data_factor = 1 - np.exp(-len(self.conversation_data) / 10)
-        consistency = self.calculate_consistency()
-        # Ensure consistency is between 0 and 1
-        consistency = max(0, consistency)
-        certainty = max_prob * data_factor * consistency
-        return min(max(certainty, 0.0), 0.99)
+       if not self.total_assessments:
+           return 0.0
+       
+       probabilities = [count / self.total_assessments for count in self.pairing_counts.values()]
+       
+       # Calculate entropy
+       entropy = -sum(p * math.log2(p) for p in probabilities if p > 0)
+       
+       # Max entropy is log2(8) for 8 possible pairings
+       max_entropy = math.log2(8)
+       
+       # Normalize entropy to [0, 1] range and invert
+       normalized_entropy = 1 - (entropy / max_entropy)
+       
+       # Factor in the amount of data
+       data_factor = 1 - math.exp(-self.total_assessments / 10)  # Asymptotically approaches 1
+       
+       certainty = normalized_entropy * data_factor
+       
+       return certainty
+            
     
-    
-    """
-    # Additive certainty calculation
-    def calculate_certainty(self) -> float:
-        max_prob = np.max(self.pairing_probabilities)
-        data_factor = 1 - np.exp(-len(self.conversation_data) / 5)  # Adjusted decay rate
-        consistency = self.calculate_consistency()
-        consistency = max(0, consistency)  # Ensure consistency is non-negative
-        certainty = (0.5 * max_prob) + (0.3 * data_factor) + (0.2 * consistency)
-        return min(certainty, 0.99)
-
-    """
-    
-
-
-    def temporal_analysis(self):
-        """
-        Perform temporal analysis on the conversation data, applying decay to older data points.
-        """
-        current_time = datetime.datetime.now()
-        for data_point in self.conversation_data[:-1]:
-            time_diff = (current_time - data_point['timestamp']).total_seconds()
-            decay = np.exp(-time_diff / self.time_constant)
-            data_point['probabilities'] *= decay
-
-    def calculate_consistency(self) -> float:
-        if len(self.conversation_data) < 2:
-            return 1.0  # Maximum consistency when there's only one data point
-        prev_probs = self.conversation_data[-2]['probabilities']
-        curr_probs = self.pairing_probabilities
-        # Calculate the cosine similarity instead of correlation
-        numerator = np.dot(prev_probs, curr_probs)
-        denominator = np.linalg.norm(prev_probs) * np.linalg.norm(curr_probs)
-        similarity = numerator / denominator if denominator != 0 else 0
-        return similarity
-    
-
-    """
-    def calculate_consistency(self) -> float:
-        if len(self.conversation_data) < 2:
-            return 1.0
-        prev_probs = self.conversation_data[-2]['probabilities']
-        curr_probs = self.pairing_probabilities
-        correlation = np.corrcoef(prev_probs, curr_probs)[0, 1]
-        # Rescale correlation to be between 0 and 1
-        rescaled_corr = (correlation + 1) / 2
-        return rescaled_corr if not np.isnan(rescaled_corr) else 0.0
-    """
 
     def generate_profile(self) -> str:
-        """
-        Generate a psychological profile based on the current probabilities and data.
-
-        Returns:
-        - str: A string representation of the psychological profile.
-        """
-        top_pairing_index = np.argmax(self.pairing_probabilities)
-        top_pairing = PAIRINGS[top_pairing_index]
-        profile = f"Most likely Hero-Inferior pairing: {top_pairing}\n"
-        profile += f"Probability: {self.pairing_probabilities[top_pairing_index]:.2f}\n"
-        profile += f"Certainty: {self.current_certainty:.2f}\n"
+        if not self.total_assessments:
+            return "Not enough data for profiling"
+        
+        most_common_pairing = self.pairing_counts.most_common(1)[0][0]
+        probability = self.pairing_counts[most_common_pairing] / self.total_assessments
+        
+        profile = f"Most likely Hero-Inferior pairing: {most_common_pairing}\n"
+        profile += f"Probability: {probability:.2f}\n"
+        profile += f"Total assessments: {self.total_assessments}\n"
         profile += "Potential strengths and challenges:\n"
-        profile += self.get_strengths_and_challenges(top_pairing)
-        profile += "\nRecent topics of interest:\n"
-        profile += ', '.join(self.get_recent_topics())
+        profile += self.get_strengths_and_challenges(most_common_pairing)
         return profile
+
 
     def get_strengths_and_challenges(self, pairing: str) -> str:
         """
@@ -391,56 +389,9 @@ class PsychologicalProfiler:
         info = strengths_challenges.get(pairing, {"strengths": "Unknown", "challenges": "Unknown"})
         return f"Strengths: {info['strengths']}\nChallenges: {info['challenges']}"
 
-    def get_recent_topics(self) -> List[str]:
-        """
-        Get the most recent topics of interest from the conversation data.
-    
-        Returns:
-        - List[str]: A list of recent topics.
-        """
-        recent_topics = []
-        for data in self.conversation_data[-5:]:
-            recent_topics.extend(data['processed_data']['topics'])
-        # Remove duplicates and return up to 5 topics
-        unique_topics = list(set(recent_topics))
-        return unique_topics[:5]
 
-    def analyze_sentiment(self, text: str) -> str:
-        """
-        Analyze the sentiment of the given text.
 
-        Parameters:
-        - text (str): The text to analyze.
-
-        Returns:
-        - str: The sentiment category ('Positive', 'Negative', or 'Neutral').
-        """
-        analyzer = SentimentIntensityAnalyzer()
-        scores = analyzer.polarity_scores(text)
-        compound_score = scores['compound']
-
-        if compound_score >= 0.05:
-            return 'Positive'
-        elif compound_score <= -0.05:
-            return 'Negative'
-        else:
-            return 'Neutral'
-
-    def extract_topics(self, text: str) -> List[str]:
-        """
-        Extract key topics from the given text.
-
-        Parameters:
-        - text (str): The text to analyze.
-
-        Returns:
-        - List[str]: A list of extracted topics.
-        """
-        kw_extractor = yake.KeywordExtractor()
-        keywords = kw_extractor.extract_keywords(text)
-        # Extract top 5 keywords
-        top_keywords = [kw for kw, score in sorted(keywords, key=lambda x: x[1])[:5]]
-        return top_keywords
+   
 
 # Usage example
 def main():
@@ -455,13 +406,17 @@ def main():
     ]
 
     for i, message in enumerate(conversation):
-        context = "work" if i % 2 == 0 else "personal"
-        profile, certainty = profiler.update_profile(message, context)
-        print(f"New message: {message}")
-        print(f"Context: {context}")
-        print(f"Updated Profile:\n{profile}")
-        print(f"Certainty: {certainty:.2f}")
-        print("---")
+        try:
+            context = "work" if i % 2 == 0 else "personal"
+            profile, certainty = profiler.update_profile(message, context)
+            print(f"New message: {message}")
+            print(f"Context: {context}")
+            print(f"Updated Profile:\n{profile}")
+            print(f"Certainty: {certainty:.2f}")
+            print("---")
+        except Exception as e:
+            print(f"Error processing message: {e}")
+            print("---")
 
 if __name__ == "__main__":
     main()
