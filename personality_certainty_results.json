@@ -1,0 +1,115 @@
+{
+  "validation_results": [
+    {
+      "id": 0,
+      "personality_type": "Ne Hero - Si Inferior",
+      "original_certainty_progression": [
+        {
+          "position": 1,
+          "certainty": 0.1
+        }
+      ],
+      "generated_questions": [
+        {
+          "position": 0,
+          "original": "Did you get up to anything fun this weekend?",
+          "generated": "Generate the next interview question to"
+        },
+        {
+          "position": 2,
+          "original": "\"Yeah, I actually had a pretty chill weekend. I needed some downtime, so I caught up on some Netflix shows and did some reading. It was nice to just relax and not have any plans for a change. How about you, do you prefer busy weekends or more low-key ones?\"",
+          "generated": null
+        }
+      ],
+      "generated_certainty_progression": [
+        {
+          "position": 1,
+          "certainty": 0.1
+        }
+      ],
+      "certainty_metrics": {
+        "original_final_certainty": 0.1,
+        "generated_final_certainty": 0.1,
+        "original_avg_certainty": 0.1,
+        "generated_avg_certainty": 0.1,
+        "certainty_improvement": 0.0
+      }
+    },
+    {
+      "id": 1,
+      "personality_type": "Ne Hero - Si Inferior",
+      "original_certainty_progression": [
+        {
+          "position": 1,
+          "certainty": 0.1
+        }
+      ],
+      "generated_questions": [
+        {
+          "position": 0,
+          "original": "Have you been following the news about the new space telescope?",
+          "generated": "\"Are you a social person?\n\n\"Are you a business person?\n\n\"Are you a lawyer?\n\n\"Are you a professor?\n\n\"Are you a musician?\n\n\"Are you a nurse?\n\n\"Are you a chef?\n\n\"Are you a scientist?\"\n\n\""
+        },
+        {
+          "position": 2,
+          "original": "\"Oh wow, that's really impressive. I didn't realize it would be that much more sensitive than the Hubble. It's amazing how far we've come in our understanding of the universe, and I agree, it's definitely exciting to see what new information this telescope will bring us. Do you have any favorite space discoveries so far?\"",
+          "generated": null
+        }
+      ],
+      "generated_certainty_progression": [
+        {
+          "position": 1,
+          "certainty": 0.1
+        }
+      ],
+      "certainty_metrics": {
+        "original_final_certainty": 0.1,
+        "generated_final_certainty": 0.1,
+        "original_avg_certainty": 0.1,
+        "generated_avg_certainty": 0.1,
+        "certainty_improvement": 0.0
+      }
+    },
+    {
+      "id": 2,
+      "personality_type": "Ne Hero - Si Inferior",
+      "original_certainty_progression": [
+        {
+          "position": 1,
+          "certainty": 0.1
+        }
+      ],
+      "generated_questions": [
+        {
+          "position": 0,
+          "original": "Have you tried any good restaurants lately?",
+          "generated": "When you're done, click \"Submit\""
+        },
+        {
+          "position": 2,
+          "original": "Oh wow, that sounds delicious! I'm a huge fan of Italian food, so I'll have to check out that restaurant. Lately, I've been really into trying different types of sushi. I found this hidden gem in the city that has the most amazing rolls. I never would have thought to pair some of the ingredients together, but it's so good. Have you ever had any interesting sushi combinations?",
+          "generated": null
+        }
+      ],
+      "generated_certainty_progression": [
+        {
+          "position": 1,
+          "certainty": 0.1
+        }
+      ],
+      "certainty_metrics": {
+        "original_final_certainty": 0.1,
+        "generated_final_certainty": 0.1,
+        "original_avg_certainty": 0.1,
+        "generated_avg_certainty": 0.1,
+        "certainty_improvement": 0.0
+      }
+    }
+  ],
+  "aggregate_metrics": {
+    "total_conversations": 3,
+    "average_certainty_improvement": 0.0,
+    "average_original_final_certainty": 0.10000000000000002,
+    "average_generated_final_certainty": 0.10000000000000002
+  }
+}

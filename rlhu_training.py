@@ -4,18 +4,21 @@ import os
 
 # Disable CUDA devices if any and enable MPS fallback
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
-os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'  # Ensure fallback is enabled
-os.environ["TOKENIZERS_PARALLELISM"] = "false"    # Suppress tokenizers parallelism warnings
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import torch
 import torch.nn as nn
 from transformers import (
     GPT2Tokenizer,
-    GPT2LMHeadModel,  # Import GPT2LMHeadModel
     GenerationConfig,
-    DataCollatorWithPadding,
+    PreTrainedModel,
+    PretrainedConfig
 )
-from transformers.modeling_outputs import CausalLMOutputWithCrossAttentions
+from transformers.modeling_outputs import (
+    CausalLMOutputWithCrossAttentions,
+    BaseModelOutputWithPastAndCrossAttentions,
+)
 from trl import (
     PPOTrainer,
     PPOConfig,
@@ -25,6 +28,9 @@ from torch.utils.data import Dataset
 import sys
 import argparse
 import warnings
+
+# **Add this import statement**
+from typing import Optional
 
 # Suppress specific warnings if desired
 warnings.filterwarnings("ignore")
@@ -75,20 +81,6 @@ class PromptDataset(Dataset):
             'attention_mask': inputs['attention_mask'][0],
         }
 
-# Modify RLHURewardModel to inherit from GPT2LMHeadModel
-class RLHURewardModel(GPT2LMHeadModel):
-    def __init__(self, config):
-        super().__init__(config)
-        # No need to set base_model_prefix here; inherited from GPT2LMHeadModel
-
-    def score(self, responses):
-        # Compute rewards using compute_certainty
-        rewards = []
-        for response in responses:
-            reward = compute_certainty(response)
-            rewards.append(reward)
-        return torch.tensor(rewards, dtype=torch.float32).to(device)
-
 # Define the custom policy model with modified forward method and score method
 class CustomAutoModelForCausalLMWithValueHead(AutoModelForCausalLMWithValueHead):
     base_model_prefix = "pretrained_model"
@@ -122,11 +114,72 @@ class CustomAutoModelForCausalLMWithValueHead(AutoModelForCausalLMWithValueHead)
     def score(self, hidden_states):
         return self.v_head(hidden_states).squeeze(-1)
 
+# Subclass PPOTrainer and override compute_rewards and save_model
+from trl import PPOTrainer
+
+class CustomPPOTrainer(PPOTrainer):
+    def compute_rewards(self, samples, **kwargs):
+        # (Your existing compute_rewards code)
+        responses = samples["response"]
+        rewards = []
+        for response in responses:
+            reward = compute_certainty(response)
+            rewards.append(reward)
+        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.accelerator.device)
+        rewards = rewards.unsqueeze(1).expand(-1, samples['response_tokens'].shape[1])
+        return rewards
+
+    def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
+        # Adjusted save_model method
+        output_dir = output_dir if output_dir is not None else self.config.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+        if not hasattr(self.policy, 'save_pretrained'):
+            raise ValueError("Trainer.policy does not have a save_pretrained method")
+        self.policy.save_pretrained(output_dir, safe_serialization=False)
+        if self.tokenizer is not None:
+            self.tokenizer.save_pretrained(output_dir)
+
+# Define a custom dummy model
+class DummyModel(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+        batch_size, seq_length = input_ids.size()
+        hidden_size = self.config.hidden_size
+        device = input_ids.device
+        # Create dummy hidden states
+        hidden_states = torch.zeros(batch_size, seq_length, hidden_size, device=device)
+        return BaseModelOutputWithPastAndCrossAttentions(
+            last_hidden_state=hidden_states,
+            hidden_states=(hidden_states,)
+        )
+
+# Define a dummy reward model
+class DummyRewardModel(PreTrainedModel):
+    config_class = PretrainedConfig
+    base_model_prefix = 'dummy_model'
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.dummy_model = DummyModel(config)
+
+    def forward(self, input_ids=None, attention_mask=None, **kwargs):
+        return self.dummy_model(input_ids=input_ids, attention_mask=attention_mask, **kwargs)
+
+    def score(self, hidden_states):
+        # Return a dummy score tensor
+        batch_size, seq_length, hidden_size = hidden_states.size()
+        device = hidden_states.device
+        # Return zeros of shape (batch_size, seq_length)
+        return torch.zeros(batch_size, seq_length, device=device)
+
 def main():
     args = parse_args()
 
     # Force device selection based on availability
-    global device  # Declare device as global so it can be accessed in RLHURewardModel
+    global device  # Declare device as global so it can be accessed in compute_certainty
     if args.device == 'cuda' and torch.cuda.is_available():
         device = torch.device("cuda")
         print("Using CUDA device for training.")
@@ -180,15 +233,11 @@ def main():
         response_length=20,
     )
 
-    # Initialize the custom reward model
-    reward_model = RLHURewardModel.from_pretrained(model_name).to(device)
-
     # Prepare the dataset
     prompts = [
         "Describe a time when you had to make a difficult decision.",
         "How do you approach problem-solving in your daily life?",
         "What motivates you to achieve your goals.",
-        # Add more prompts to match the increased batch size
         "What is your favorite hobby and why?",
         "Tell me about a memorable experience you had.",
         "How do you handle stress and pressure?",
@@ -199,14 +248,18 @@ def main():
     train_dataset = PromptDataset(prompts, tokenizer)
     eval_dataset = train_dataset  # Use the same dataset for evaluation
 
+    # Initialize the dummy reward model
+    dummy_config = PretrainedConfig(hidden_size=policy.config.hidden_size)
+    reward_model = DummyRewardModel(dummy_config).to(device)
+
     print("Initializing PPO trainer...")
     # PPOTrainer initialization
-    ppo_trainer = PPOTrainer(
+    ppo_trainer = CustomPPOTrainer(
         config=ppo_config,
         processing_class=tokenizer,
         policy=policy,
         ref_policy=ref_model,
-        reward_model=reward_model,
+        reward_model=reward_model,  # Pass the dummy reward model here
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         value_model=policy,
@@ -218,7 +271,7 @@ def main():
 
     # Save the fine-tuned model
     try:
-        policy.save_pretrained('fine_tuned_model')
+        policy.save_pretrained('fine_tuned_model', safe_serialization=False)
         tokenizer.save_pretrained('fine_tuned_model')
         print("Model and tokenizer saved successfully")
     except Exception as e:

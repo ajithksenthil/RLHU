@@ -1,0 +1,59 @@
+[
+  {
+    "id": 0,
+    "personality_type": "Ne Hero - Si Inferior",
+    "messages": [
+      {
+        "speaker": "interviewer",
+        "message": "Did you get up to anything fun this weekend?"
+      },
+      {
+        "speaker": "target",
+        "message": "\"Yeah, I actually had a pretty eventful weekend! On Saturday, I went for a hike with some friends and we stumbled upon this beautiful waterfall. It was so refreshing to be out in nature and just take in the scenery. And then on Sunday, I tried out this new recipe for homemade pasta and it turned out surprisingly well! I've always been interested in cooking and it was really fun to experiment with new flavors. How about you, did you do anything fun or interesting?\"",
+        "personality_type": "Ne Hero - Si Inferior"
+      },
+      {
+        "speaker": "interviewer",
+        "message": "\"Yeah, I actually had a pretty chill weekend. I needed some downtime, so I caught up on some Netflix shows and did some reading. It was nice to just relax and not have any plans for a change. How about you, do you prefer busy weekends or more low-key ones?\""
+      }
+    ]
+  },
+  {
+    "id": 1,
+    "personality_type": "Ne Hero - Si Inferior",
+    "messages": [
+      {
+        "speaker": "interviewer",
+        "message": "Have you been following the news about the new space telescope?"
+      },
+      {
+        "speaker": "target",
+        "message": "\"Yes, I've been keeping an eye on it! I've always been fascinated by space and the advancements we're making in our understanding of the universe. Did you know that the new telescope will have 100 times the sensitivity of the Hubble telescope? I think it's incredible how far technology has come and how much more we can learn about the vastness of space through this new tool. It's definitely something I'm excited to follow and see what new discoveries and insights it will bring.\"",
+        "personality_type": "Ne Hero - Si Inferior"
+      },
+      {
+        "speaker": "interviewer",
+        "message": "\"Oh wow, that's really impressive. I didn't realize it would be that much more sensitive than the Hubble. It's amazing how far we've come in our understanding of the universe, and I agree, it's definitely exciting to see what new information this telescope will bring us. Do you have any favorite space discoveries so far?\""
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "personality_type": "Ne Hero - Si Inferior",
+    "messages": [
+      {
+        "speaker": "interviewer",
+        "message": "Have you tried any good restaurants lately?"
+      },
+      {
+        "speaker": "target",
+        "message": "Actually, yes! I recently went to this amazing Italian place downtown that had the best pasta I've ever tasted. But then my friend recommended this new fusion restaurant and I have to say, I was blown away by the unique flavors they were able to combine. I always love trying out new restaurants and experimenting with different types of cuisine. What about you? Any favorite spots you've been to lately?",
+        "personality_type": "Ne Hero - Si Inferior"
+      },
+      {
+        "speaker": "interviewer",
+        "message": "Oh wow, that sounds delicious! I'm a huge fan of Italian food, so I'll have to check out that restaurant. Lately, I've been really into trying different types of sushi. I found this hidden gem in the city that has the most amazing rolls. I never would have thought to pair some of the ingredients together, but it's so good. Have you ever had any interesting sushi combinations?"
+      }
+    ]
+  }
+]

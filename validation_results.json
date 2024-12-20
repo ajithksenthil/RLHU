@@ -1,0 +1,58 @@
+{
+  "validation_results": [
+    {
+      "id": 0,
+      "personality_type": "Ne Hero - Si Inferior",
+      "generated_responses": [
+        "Did you get up to anything fun this weekend?\n\nWe did. We went to a show, got together, and then we went back to bed. And it was really, really fun. And I was just so excited.\n\nWhat are your thoughts on the recent news that the NHL announced the 2017-18 season will be the last.\n\nIt's going to be the last time the NHL will have a big announcement. I think it's going to be an amazing event. I think it's going to be a really great event for the whole sport. I think it's going to be a great experience for the whole hockey community. It's going to be a great event for all of us.\n\nDo you think"
+      ],
+      "certainty_scores": [
+        {
+          "generated": 0.1,
+          "original": 0.12
+        }
+      ],
+      "original_responses": [
+        "\"Yeah, I actually had a pretty eventful weekend! On Saturday, I went for a hike with some friends and we stumbled upon this beautiful waterfall. It was so refreshing to be out in nature and just take in the scenery. And then on Sunday, I tried out this new recipe for homemade pasta and it turned out surprisingly well! I've always been interested in cooking and it was really fun to experiment with new flavors. How about you, did you do anything fun or interesting?\""
+      ]
+    },
+    {
+      "id": 1,
+      "personality_type": "Ne Hero - Si Inferior",
+      "generated_responses": [
+        "Have you been following the news about the new space telescope?\n\nI've been following the news for a while now. I was wondering what was going on.\n\nWhat's the latest version of the telescope?\n\nIt's been very busy so far.\n\nWhat's the best way to get into space?\n\nI want to get into space. I want to get into space and I want to get out of there. I want to get out of there.\n\nYou've been on the news a lot lately.\n\nI've been on the news a lot lately.\n\nAre you going to go on a tour of the space telescope?\n\nYes, I will.\n\nWhat's the most"
+      ],
+      "certainty_scores": [
+        {
+          "generated": 0.12,
+          "original": 0.11
+        }
+      ],
+      "original_responses": [
+        "\"Yes, I've been keeping an eye on it! I've always been fascinated by space and the advancements we're making in our understanding of the universe. Did you know that the new telescope will have 100 times the sensitivity of the Hubble telescope? I think it's incredible how far technology has come and how much more we can learn about the vastness of space through this new tool. It's definitely something I'm excited to follow and see what new discoveries and insights it will bring.\""
+      ]
+    },
+    {
+      "id": 2,
+      "personality_type": "Ne Hero - Si Inferior",
+      "generated_responses": [
+        "Have you tried any good restaurants lately?\n\nIt's been a very busy year for me, but I'm finally going to try a new restaurant. I'm hoping to open in October. I'll get to go to New York and then see what's out there. It'll be a really cool place.\n\nAre you looking forward to seeing your first restaurant?\n\nI hope so.\n\nHave you ever tried to get a reservation at a restaurant?\n\nI've never tried to get a reservation, but I know I'll try.\n\nHave you tried to get a reservation at a restaurant?\n\nNo, I haven't tried to get a reservation.\n\nHave you tried to get a reservation at a"
+      ],
+      "certainty_scores": [
+        {
+          "generated": 0.09,
+          "original": 0.11
+        }
+      ],
+      "original_responses": [
+        "Actually, yes! I recently went to this amazing Italian place downtown that had the best pasta I've ever tasted. But then my friend recommended this new fusion restaurant and I have to say, I was blown away by the unique flavors they were able to combine. I always love trying out new restaurants and experimenting with different types of cuisine. What about you? Any favorite spots you've been to lately?"
+      ]
+    }
+  ],
+  "aggregate_metrics": {
+    "avg_generated_certainty": 0.10333333333333333,
+    "avg_original_certainty": 0.11333333333333333,
+    "total_conversations": 3,
+    "total_responses": 3
+  }
+}
